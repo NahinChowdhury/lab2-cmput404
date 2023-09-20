@@ -41,7 +41,6 @@ def main():
 			pid = os.fork()
 
 			if pid == 0:
-				time.sleep(5)
 				full_data = conn.recv(BUFFER_SIZE).decode()
 				#recieve data, wait a bit, then send it back
 				remote_ip = get_remote_ip("www.google.com")
