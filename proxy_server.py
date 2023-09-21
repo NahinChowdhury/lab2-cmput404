@@ -1,62 +1,47 @@
-#!/usr/bin/env python3
-import socket, sys, os
-import time
+import socket
+from threading import Thread
 
-#define address & buffer size
-HOST = ""
-PORT = 8001
-BUFFER_SIZE = 1024
+BYTES_TO_READ = 4096
+PROXY_SERVER_HOST = "127.0.0.1"
+PROXY_SERVER_PORT = 8080
 
+def send_request(host, port, request):
 
-#get host information
-def get_remote_ip(host):
-	print(f'Getting IP for {host}')
-	try:
-		remote_ip = socket.gethostbyname( host )
-	except socket.gaierror:
-		print ('Hostname could not be resolved. Exiting')
-		sys.exit()
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+		client_socket.connect((host, port))
+		client_socket.send(request)
+		client_socket.shutdown(socket.SHUT_WR)
 
-	print (f'Ip address of {host} is {remote_ip}')
-	return remote_ip
+		data = client_socket.recv(BYTES_TO_READ)
+		result = b''+data
+		while len(data) > 0:
+			data = client_socket.recv(BYTES_TO_READ)
+			result += data
 
-
-
-def main():
-	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+		return result
 	
-		#QUESTION 3
-		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		
-		#bind socket to address
-		s.bind((HOST, PORT))
-		#set to listening mode
-		s.listen(2)
-		
-		#continuously listen for connections
+def handle_connection(conn, addr):
+	with conn:
+		print("Connected by", addr)
+		request = b''
+
 		while True:
-			conn, addr = s.accept()
-			print("Connected by", addr)
-			
-			pid = os.fork()
+			data = conn.recv(BYTES_TO_READ)
+			if not data:
+				break
+			request += data
+		response = send_request("www.google.com", 80, request)
+		conn.sendall(response)
 
-			if pid == 0:
-				full_data = conn.recv(BUFFER_SIZE).decode()
-				#recieve data, wait a bit, then send it back
-				remote_ip = get_remote_ip("www.google.com")
+def start_server():
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+		server_socket.bind((PROXY_SERVER_HOST, PROXY_SERVER_PORT))
+		server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		server_socket.listen(2)
 
-				googleSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-				googleSocket.connect((remote_ip , 80))
-				
-				payload = f"GET /search?q={full_data} HTTP/1.1\r\nHost: www.google.com\r\n\r\n"
-				googleSocket.sendall(payload.encode())
+		while True:
+			conn, addr = server_socket.accept()
+			thread = Thread(target=handle_connection, args=(conn, addr))
+			thread.run()
 
-				response = googleSocket.recv(BUFFER_SIZE)
-				conn.sendall(response)
-				conn.close()
-				googleSocket.close()
-			else:
-				conn.close()
-
-if __name__ == "__main__":
-	main()
+start_server()
